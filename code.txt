@@ -1,0 +1,205 @@
+// Main code which puts the logic of the time & stopwatch & 7-seg code together
+ 
+module Top_clock(
+
+//declaring variables 
+    input clock,
+    input mode,
+    input reset,
+    input [1:0] select,
+    input [5:0] value,
+    input [1:0] set,
+    output [7:0] segment7,
+    output [7:0] enable7
+    );
+//Stopwatch: Hr = hours , Min = minutes , sec = seconds ;  Time :  Hr2 Hr1 : Min2 Min1 : Sec2 Sec1 : T1 T0 ...
+// T1 = p /A , T0 = M -> Pm /Am 
+reg [5:0] Sec;
+reg [5:0] Min;
+reg [4:0] Hr;	
+reg [3:0]Hr1=4'd0;
+reg [3:0]Hr2=4'd0;
+reg [3:0]Min1=4'd0;
+reg [3:0]Min2=4'd0;
+reg [3:0]Sec1=4'd0;
+reg [3:0]Sec2=4'd0;
+reg [1:0]T0 = 2'b00;
+reg [1:0]T1 = 2'b11;
+reg [7:0]EnSS = 8'b11111111;
+reg [7:0]DSS = 8'b11111111;					 
+reg [26:0]rtc;
+
+
+always @ (posedge clock)
+begin
+// if reset = 1 then reset the clock to 0 
+if(reset)
+rtc <= 27'd0;
+// else increment by 1 
+else
+rtc <= rtc + 1'b1;
+end	
+
+
+// reset clock to 00 : 00 : 00  when reset button is pushed			 
+always @ (posedge clock)
+begin
+if(reset)
+begin
+Sec <= 6'd0;
+Min <= 6'd0;
+Hr <= 6'd0;
+end
+else begin
+
+// if rtc is not reseted then increment the Seconds by 1 
+if(&rtc)
+begin
+Sec <= Sec + 1'b1;
+
+// if seconds hit 59 it will increment the minutes by 1 and reset seconds back to 0 
+if(Sec == 6'd59)
+begin
+Sec <= 6'd0;
+Min <= Min + 1'b1;
+
+//  if Minutes hit 59 it will increment the hours by 1 and reset Minutes back to 0 
+if(Min == 6'd59)
+begin
+Min <= 6'd0;
+Hr <= Hr + 1'b1;
+
+// if hours hit 12 it will reset the whole clock automatically hours & min & sec will be rest to 0 -> 00:00:00
+if(Hr == 5'd11)
+begin
+Hr <= 5'd0;
+Min <= 6'd0;
+Sec <= 6'd0;
+end
+end
+end
+end
+
+
+Hr1 <= Hr / 'd10;
+Hr2 <= Hr % 'd10;
+Min1 <= Min / 'd10;
+Min2 <= Min % 'd10;
+Sec1 <= Sec / 'd10;
+Sec2 <= Sec % 'd10;
+end
+end		
+
+// call SevenSeg which will display the time & stopwatch using 7-seg  
+SevenSeg s0 (clock,reset,Hr1,Hr2,Min1,Min2,Sec1,Sec2,T1,T0,enable7,segment7);
+		 
+endmodule	
+
+// ------------------------------------------------------------------------------------------------------------------
+
+// "Counter" -> responsible for when to count 1 ...
+
+module SevenSeg(
+input clock, reset,
+input [3:0] BCD5,BCD4,BCD3,BCD2,BCD1,BCD0,
+input [1:0] T1,T0,
+output reg [7:0] SegEnable,
+output reg [7:0] SevenSeg
+);
+
+
+wire [6:0]w0[7:0];
+reg [16:0]delayclock;
+
+// if reset =1 delay button = 0 -> it will stop & reset will occur
+always @(posedge clock) 
+begin if(reset)
+ delayclock <= 17'd0;
+ else
+ delayclock <= delayclock + 1'b1;
+ if (reset) 
+ SegEnable <= 8'hFE;
+ else if(&delayclock) 
+ SegEnable <= {SegEnable[6:0], SegEnable[7]};
+end
+
+always @(*)
+begin
+SevenSeg[7] <= 1'b1;
+if (reset) 
+begin
+SevenSeg[6:0] <= 7'h7F;
+end 
+else begin
+case(~SegEnable) 
+// placement of each 7 segment ... 
+8'b00000001 : SevenSeg[6:0] <= ~w0[0];
+8'b00000010 : SevenSeg[6:0] <= ~w0[1];
+8'b00000100 : SevenSeg[6:0] <= ~w0[2];
+8'b00001000 : SevenSeg[6:0] <= ~w0[3];
+8'b00010000 : SevenSeg[6:0] <= ~w0[4];
+8'b00100000 : SevenSeg[6:0] <= ~w0[5];
+8'b01000000 : SevenSeg[6:0] <= ~w0[6];
+8'b10000000 : SevenSeg[6:0] <= ~w0[7];
+ default: SevenSeg[6:0] <= 7'h7F;
+endcase
+end
+end
+
+// call BCD
+BCD b0 (BCD0, w0[2]);
+BCD b1 (BCD1, w0[3]);
+BCD b2 (BCD2, w0[4]);
+BCD b3 (BCD3, w0[5]);
+BCD b4 (BCD4, w0[6]);
+BCD b5 (BCD5, w0[7]);
+// call time
+Time t0(T0,w0[0]);
+Time t1(T1,w0[1]);
+endmodule	
+
+// ------- -----------------------------------------------------------------------------------------------------------------------
+
+// represents Am & Pm 
+module Time(
+input [1:0] T,
+output reg [6:0]SevenSeg
+);
+always @(T)              
+begin
+case(T)
+
+2'b00 : SevenSeg <= 7'b0010101;  //m
+2'b01 : SevenSeg <= 7'b1110111; //A
+2'b10 : SevenSeg <= 7'b 1110011; //p  
+//default: SevenSegment <= 7'b0000000; 
+endcase
+end
+endmodule
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+module BCD(
+ input [3:0] BCD,
+   output reg [6:0]SevenSeg
+);
+always @(BCD) 
+begin
+case(BCD)
+
+//represents each possible number on the 7-seg display .. 
+                      // gfedcba
+   4'd0 : SevenSeg <= 7'b0111111; // number 0  
+   4'd1 : SevenSeg <= 7'b0000110;  // number 1
+   4'd2 : SevenSeg <= 7'b1011011;  // number 2
+   4'd3 : SevenSeg <= 7'b1001111;  // number 3
+   4'd4 : SevenSeg <= 7'b1100110;  // number 4
+   4'd5 : SevenSeg <= 7'b1101101;  // number 5
+   4'd6 : SevenSeg <= 7'b1111101;  // number 6
+   4'd7 : SevenSeg <= 7'b0000111;  // number 7
+   4'd8 : SevenSeg <= 7'b1111111;  // number 8
+   4'd9 : SevenSeg <= 7'b1101111;  // number 9
+default: SevenSeg <= 7'b0000000;  //0 
+endcase
+end
+endmodule
